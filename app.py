@@ -254,14 +254,22 @@ def reconcile_bank(sub, bank_df, cfg, period_month):
                                "Remark":"Collection posted in GL, not yet in Bank MIS (timing difference)"})
 
     else:  # bulk
-        bank_ds=set(bank_df["DS"].dropna()) if len(bank_df) else set()
-        for _,r in current_cr.iterrows():
-            ds=norm(r.get("DS_extracted") or r.get("DS"))
-            amt=r["Entered Amount CR"]
-            if ds not in bank_ds:
-                rows4.append({"Date":r["GL Date"],"DS (Salesman)":ds,"DS (Bank MIS)":ds,
-                               "CHQ":None,"Amount":amt,
-                               "Remark":"Collection posted in GL, not yet in Bank MIS (timing difference)"})
+        bank_ds = set(bank_df["DS"].dropna()) if len(bank_df) else set()
+        sal_amts = set(round(float(x), 0) for x in sal_dr["Entered Amount DR"]) if len(sal_dr) else set()
+        for _, r in current_cr.iterrows():
+            ds  = norm(r.get("DS_extracted") or r.get("DS"))
+            amt = r["Entered Amount CR"]
+            amt_r = round(float(amt), 0)
+            # skip if this CR amount knocks off against a salesman DR amount
+            # (means it's already reconciled internally)
+            if amt_r in sal_amts:
+                continue
+            # skip if confirmed in bank MIS
+            if ds in bank_ds:
+                continue
+            rows4.append({"Date":r["GL Date"],"DS (Salesman)":ds,"DS (Bank MIS)":ds,
+                           "CHQ":None,"Amount":amt,
+                           "Remark":"Collection posted in GL, not yet in Bank MIS (timing difference)"})
 
     annex4=pd.DataFrame(rows4) if rows4 else e4
     a1t=annex1["Amount"].sum() if len(annex1) else 0
