@@ -517,11 +517,43 @@ if page=="🔄 Run Reconciliation":
     st.markdown("### Assign Bank Files")
     st.caption("Upload each bank's MIS file in the sidebar, then assign each file to the correct bank below.")
 
+    # Auto-match keywords for each bank
+    BANK_KEYWORDS = {
+        212201: ["mcb"],
+        212202: ["hbl", "habib bank"],
+        212203: ["nbl", "national bank"],
+        212204: ["hbl konnect", "konnect"],
+        212205: ["ubl", "united bank"],
+        212206: ["falah", "baf", "alfalah"],
+        212207: ["bahl", "al habib", "alhabib"],
+        212208: ["samba"],
+        212209: ["faysal"],
+        212210: ["dubai", "dib"],
+        212211: ["meezan"],
+        212212: ["metro", "hmb"],
+        212213: ["meezan mfs"],
+        212214: ["hbl mfs"],
+        212215: ["askari"],
+        212216: ["bop", "punjab"],
+        212217: ["ubl mfs"],
+        212218: ["islami"],
+        212219: ["omni"],
+        212503: ["standard", "scb"],
+    }
+
+    def auto_detect_bank(filename):
+        name = filename.lower().replace("_"," ").replace("-"," ")
+        for gl_code, keywords in BANK_KEYWORDS.items():
+            if any(kw in name for kw in keywords):
+                return BANKS[gl_code]
+        return "— Not uploaded —"
+
     bank_assignments={}
     if bank_uploads:
         bank_names_list=["— Not uploaded —"]+list(BANKS.values())
-        st.markdown("**Assign each uploaded file to its bank:**")
+        st.markdown("**Assign each uploaded file to its bank (auto-detected where possible):**")
         for bf in bank_uploads:
+            auto = auto_detect_bank(bf.name)
             col_a,col_b=st.columns([2,3])
             with col_a:
                 st.markdown(f"📄 `{bf.name}`")
@@ -529,8 +561,10 @@ if page=="🔄 Run Reconciliation":
                 chosen=st.selectbox(
                     f"Bank for {bf.name}",
                     bank_names_list,
+                    index=bank_names_list.index(auto) if auto in bank_names_list else 0,
                     key=f"assign_{bf.name}",
                     label_visibility="collapsed"
+                )
                 )
             if chosen!="— Not uploaded —":
                 gl_code=next((c for c,n in BANKS.items() if n==chosen),None)
