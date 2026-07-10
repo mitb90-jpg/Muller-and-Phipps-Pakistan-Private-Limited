@@ -565,7 +565,7 @@ if page=="🔄 Run Reconciliation":
                     key=f"assign_{bf.name}",
                     label_visibility="collapsed"
                 )
-                )
+                
             if chosen!="— Not uploaded —":
                 gl_code=next((c for c,n in BANKS.items() if n==chosen),None)
                 if gl_code:
