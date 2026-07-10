@@ -117,6 +117,10 @@ def extract_ds(text):
 def is_lump(text):
     if not isinstance(text,str): return False
     t = text.lower()
+    # must contain MIS + time reference BUT must NOT start with a date
+    # (prior-period entries like "28-Apr-2026 HBL DS # ... FROM MIS ..." are NOT lump-sums)
+    if re.match(r"\d{1,2}[-/][A-Za-z]{3}[-/]\d{4}", text.strip()):
+        return False
     return "mis" in t and ("month" in t or "ftm" in t or "for the" in t)
 
 def chq_suffix(a,b):
