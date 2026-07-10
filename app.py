@@ -468,6 +468,7 @@ def build_summary(results):
     return pd.DataFrame(rows)
 
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -486,40 +487,33 @@ with st.sidebar:
     dealer_name=DEALERS[dealer_code]
     month=st.date_input("Month-End Date",value=datetime(2026,5,31))
     month_str=month.strftime("%Y-%m-%d")
+    st.markdown("---")
+    st.markdown("### Upload Files")
+    gl_file=st.file_uploader("Combined GL File (.xlsx)",type="xlsx",key="gl_upload")
+    bank_uploads=st.file_uploader("Bank MIS Files (.xlsx)",type="xlsx",
+                                   accept_multiple_files=True,key="bank_upload")
+    tpl_file=st.file_uploader("Last Month Template (.xlsx)",type="xlsx",key="tpl_upload")
+    if tpl_file:
+        st.session_state["tpl_bytes"]=tpl_file.read()
 
 # ─────────────────────────────────────────────────────────────
-# RUN RECONCILIATION PAGE (file uploads + bank assignment here)
+# ─────────────────────────────────────────────────────────────
+# RUN RECONCILIATION PAGE
 # ─────────────────────────────────────────────────────────────
 if page=="🔄 Run Reconciliation":
     st.markdown("## Run Reconciliation")
     st.markdown("""
 **Monthly prep before uploading:**
-
 | File | What to rename |
 |---|---|
 | GL file | Sheet → `GL`, dealer code column → `Dealer Code` |
 | Each bank file | Dealer code column → `Dealer Code` |
 """)
     st.markdown("---")
-
-    col1,col2=st.columns(2)
-    with col1:
-        gl_file=st.file_uploader("📂 Upload Combined GL File (.xlsx)",type="xlsx",key="gl_upload")
-    with col2:
-        tpl_file=st.file_uploader("📂 Upload Last Month Template (.xlsx)",type="xlsx",key="tpl_upload")
-        if tpl_file:
-            st.session_state["tpl_bytes"]=tpl_file.read()
-
-    st.markdown("---")
     st.markdown("### Assign Bank Files")
-    st.caption("Upload each bank's MIS file and assign it to the correct bank from the dropdown.")
+    st.caption("Upload each bank's MIS file in the sidebar, then assign each file to the correct bank below.")
 
-    bank_uploads=st.file_uploader(
-        "Upload Bank MIS Files (select all at once)",
-        type="xlsx", accept_multiple_files=True, key="bank_upload"
-    )
-
-    bank_assignments={}  # gl_code -> file path
+    bank_assignments={}
     if bank_uploads:
         bank_names_list=["— Not uploaded —"]+list(BANKS.values())
         st.markdown("**Assign each uploaded file to its bank:**")
@@ -541,12 +535,17 @@ if page=="🔄 Run Reconciliation":
                         tmp.write(bf.getbuffer())
                         bank_assignments[gl_code]=tmp.name
 
+    if bank_assignments:
+        st.session_state["bank_assignments"]=bank_assignments
+
+    bank_assignments=bank_assignments or st.session_state.get("bank_assignments",{})
+
     st.markdown("---")
     run_btn=st.button("▶  Run Reconciliation",type="primary",
                       disabled=not(gl_file),
                       use_container_width=True)
     if not gl_file:
-        st.caption("Upload GL file to enable.")
+        st.caption("Upload GL file in the sidebar to enable.")
 
     if run_btn and gl_file:
         with tempfile.NamedTemporaryFile(suffix=".xlsx",delete=False) as fg:
