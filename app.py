@@ -153,103 +153,59 @@ ANNEX_LEFT_HEADERS = [
 
 
 def build_template_excel(results_by_bank, depot_code, depot_name=""):
-    """Builds output in the same shape as the real Main Reconciliation /
-    Annex 1 (Debit M&P) / Annex 3 (Debit Bank) template."""
+    """Builds output matching the real Main Reconciliation / Annex 1 (Debit M&P) /
+    Annex 3 (Debit Bank) template: same formatting (wrapped yellow headers, thin
+    borders, merged titles, column widths) and the same live formulas linking
+    Main Reconciliation totals to each Annex sheet's block SUM."""
 
     import openpyxl
+    from openpyxl.styles import Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
     wb = openpyxl.Workbook()
 
-    navy_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-    navy_font = Font(color="FFFFFF", bold=True)
-    red_fill = PatternFill(start_color="FDEAEA", end_color="FDEAEA", fill_type="solid")
-    bold = Font(bold=True)
+    HEADER_FILL = PatternFill(start_color="FFFCD5", end_color="FFFCD5", fill_type="solid")
+    RED_FILL = PatternFill(start_color="FDEAEA", end_color="FDEAEA", fill_type="solid")
+    BOLD = Font(bold=True, size=10)
+    NORMAL = Font(size=10)
+    WRAP_CENTER = Alignment(wrap_text=True, vertical="center", horizontal="center")
+    THIN = Side(style="thin")
+    BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
-    # results_by_bank: {bank_key: result_dict} only for banks actually uploaded
+    def style_header_cell(cell, text):
+        cell.value = text
+        cell.font = BOLD
+        cell.fill = HEADER_FILL
+        cell.alignment = WRAP_CENTER
+        cell.border = BORDER
 
-    # ---------------- MAIN RECONCILIATION ----------------
-    ws = wb.active
-    ws.title = "Main Reconciliation"
-
-    ws["B2"] = "Muller & Phipps Pakistan (Pvt) Ltd"
-    ws["B3"] = "Reconciliation of CMD / Collection Accounts"
-    ws["B5"] = "Depot Name:"
-    ws["C5"] = depot_code
-    ws["E5"] = depot_name
-
-    headers = [
-        "Branch Name\nAs Per GLR", "Location\nCode", "GLR\nCode No.",
-        "Collection Bank Balance", "Add Debit in M&P Ledger\n(Annexure 1)",
-        "Less Credit in M&P Ledger\n(Annexure 2)", "Add Debit in Bank\n(Annexure 3)",
-        "Less Credit in Bank\n(Annexure 4)", "GL Balance as per\nBank Recon (A)",
-        "Balance as per\nMNP Ledger in Actual (B)", "Difference\n(B-A)"
-    ]
-    header_row = 6
-    for i, h in enumerate(headers):
-        cell = ws.cell(row=header_row, column=2 + i, value=h)
-        cell.fill = navy_fill
-        cell.font = navy_font
-
-    totals = [0.0] * 7  # bank_bal, add_dr_mp, less_cr_mp, add_dr_bank, less_cr_bank, gl_bal, mp_bal
-
-    for i, (bank_name, code, bank_key) in enumerate(FULL_ACCOUNTS):
-        row = header_row + 1 + i
-        ws.cell(row=row, column=2, value=bank_name)
-        ws.cell(row=row, column=3, value=depot_code)
-        ws.cell(row=row, column=4, value=code)
-
-        add_dr_mp = 0
-        add_dr_bank = 0
-
-        if bank_key and bank_key in results_by_bank:
-            r = results_by_bank[bank_key]
-            unmatched_dr = r["ledger_debits"][r["ledger_debits"]["Status"] == "UNMATCHED"]
-            add_dr_mp = unmatched_dr["Entered Amount DR"].sum()
-            add_dr_bank = r["unmatched_bank_items"][BANKS[bank_key]["amount_col"]].sum()
-
-        bank_bal = 0
-        less_cr_mp = 0
-        less_cr_bank = 0
-        gl_bal = bank_bal + add_dr_mp - less_cr_mp + add_dr_bank - less_cr_bank
-        mp_bal = gl_bal  # ledger actual balance; we don't have trial balance input, mirror GL bal
-        diff = mp_bal - gl_bal
-
-        vals = [bank_bal, add_dr_mp, less_cr_mp, add_dr_bank, less_cr_bank, gl_bal, mp_bal, diff]
-        for j, v in enumerate(vals):
-            ws.cell(row=row, column=5 + j, value=v)
-
-        for k in range(6):
-            totals[k] += vals[k] if k < len(vals) else 0
-
-    total_row = header_row + 1 + len(FULL_ACCOUNTS)
-    ws.cell(row=total_row, column=2, value="TOTAL").font = bold
-    for j in range(8):
-        col_vals = [
-            ws.cell(row=header_row + 1 + i, column=5 + j).value or 0
-            for i in range(len(FULL_ACCOUNTS))
-        ]
-        cell = ws.cell(row=total_row, column=5 + j, value=sum(col_vals))
-        cell.font = bold
-
-    for col_letter, width in zip("BCDEFGHIJKL", [26, 10, 10, 14, 16, 16, 14, 14, 16, 18, 12]):
-        ws.column_dimensions[col_letter].width = width
+    def style_data_cell(cell, value=None, bold=False, red=False):
+        if value is not None:
+            cell.value = value
+        cell.font = BOLD if bold else NORMAL
+        cell.border = BORDER
+        if red:
+            cell.fill = RED_FILL
 
     # ---------------- ANNEX 1 (Debit M&P) ----------------
-    ws1 = wb.create_sheet("Annex 1 (Debit M&P)")
+    ws1 = wb.active
+    ws1.title = "Annex 1 (Debit M&P)"
     ws1["A1"] = "Annexure 1"
+    ws1["A1"].font = BOLD
     ws1["A2"] = "Debit in M&P Ledger - Collection Accounts"
+    ws1["A2"].font = BOLD
 
+    annex1_totals = {}  # code -> (sheet_name, total_row)
     row_cursor = 4
     for bank_name, code, bank_key in FULL_ACCOUNTS:
         ws1.cell(row=row_cursor, column=1,
-                 value=f"{bank_name} - 01.000.000.{depot_code}.000.{code}").font = bold
+                 value=f"{bank_name} - 01.000.000.{depot_code}.000.{code}").font = BOLD
         row_cursor += 1
 
         for i, h in enumerate(ANNEX_LEFT_HEADERS):
-            cell = ws1.cell(row=row_cursor, column=1 + i, value=h)
-            cell.fill = navy_fill
-            cell.font = navy_font
+            style_header_cell(ws1.cell(row=row_cursor, column=1 + i), h)
+        header_row_here = row_cursor
+        ws1.row_dimensions[header_row_here].height = 40
         row_cursor += 1
 
         items = []
@@ -258,71 +214,180 @@ def build_template_excel(results_by_bank, depot_code, depot_name=""):
             unmatched_dr = r["ledger_debits"][r["ledger_debits"]["Status"] == "UNMATCHED"]
             items = unmatched_dr.to_dict("records")
 
-        if not items:
-            for blank_row in range(2):
-                ws1.cell(row=row_cursor, column=1, value=blank_row + 1)
-                ws1.cell(row=row_cursor, column=7, value=0)
-                row_cursor += 1
-        else:
-            for s_no, item in enumerate(items, start=1):
-                ws1.cell(row=row_cursor, column=1, value=s_no)
-                ws1.cell(row=row_cursor, column=3, value=str(item.get("Journal Line Description", "")))
-                ws1.cell(row=row_cursor, column=7, value=item.get("Entered Amount DR"))
-                ws1.cell(row=row_cursor, column=9,
-                         value="Not matched to bank MIS this month - review manually")
-                for c in range(1, 10):
-                    ws1.cell(row=row_cursor, column=c).fill = red_fill
-                row_cursor += 1
+        first_item_row = row_cursor
+        n_rows = max(len(items), 2)
+        for i in range(n_rows):
+            if i < len(items):
+                item = items[i]
+                style_data_cell(ws1.cell(row=row_cursor, column=1), i + 1)
+                style_data_cell(ws1.cell(row=row_cursor, column=3), str(item.get("Journal Line Description", "")))
+                style_data_cell(ws1.cell(row=row_cursor, column=7), item.get("Entered Amount DR"), red=True)
+                style_data_cell(ws1.cell(row=row_cursor, column=9), "Not matched to bank MIS this month - review manually", red=True)
+                for c in [2, 4, 5, 6, 8]:
+                    style_data_cell(ws1.cell(row=row_cursor, column=c), red=True)
+            else:
+                style_data_cell(ws1.cell(row=row_cursor, column=1), i + 1)
+                style_data_cell(ws1.cell(row=row_cursor, column=7), 0)
+                for c in [2, 3, 4, 5, 6, 8, 9]:
+                    style_data_cell(ws1.cell(row=row_cursor, column=c))
+            row_cursor += 1
+        last_item_row = row_cursor - 1
 
-        row_cursor += 2  # gap between blocks
+        total_row = row_cursor
+        style_data_cell(ws1.cell(row=total_row, column=1), "Total", bold=True)
+        for c in [2, 3, 4, 5, 6, 8, 9]:
+            style_data_cell(ws1.cell(row=total_row, column=c), bold=True)
+        total_cell = ws1.cell(row=total_row, column=7)
+        total_cell.value = f"=SUM(G{first_item_row}:G{last_item_row})"
+        total_cell.font = BOLD
+        total_cell.border = BORDER
+        annex1_totals[code] = total_row
+        row_cursor += 2
 
-    for col_letter, width in zip("ABCDEFGHI", [8, 12, 18, 18, 9, 14, 14, 14, 44]):
+    for col_letter, width in zip("ABCDEFGHI", [8, 12, 20, 18, 9, 12, 14, 14, 44]):
         ws1.column_dimensions[col_letter].width = width
 
     # ---------------- ANNEX 3 (Debit Bank) ----------------
     ws3 = wb.create_sheet("Annex 3 (Debit Bank)")
     ws3["A1"] = "Annexure 3"
+    ws3["A1"].font = BOLD
     ws3["A2"] = "Debit in Bank - Collection Accounts"
+    ws3["A2"].font = BOLD
 
+    annex3_totals = {}
     row_cursor = 4
     for bank_name, code, bank_key in FULL_ACCOUNTS:
         ws3.cell(row=row_cursor, column=1,
-                 value=f"{bank_name} - 01.000.000.{depot_code}.000.{code}").font = bold
+                 value=f"{bank_name} - 01.000.000.{depot_code}.000.{code}").font = BOLD
         row_cursor += 1
 
         for i, h in enumerate(ANNEX_LEFT_HEADERS):
-            cell = ws3.cell(row=row_cursor, column=1 + i, value=h)
-            cell.fill = navy_fill
-            cell.font = navy_font
+            style_header_cell(ws3.cell(row=row_cursor, column=1 + i), h)
+        ws3.row_dimensions[row_cursor].height = 40
         row_cursor += 1
 
         bank_items = []
+        cfg = BANKS.get(bank_key) if bank_key else None
         if bank_key and bank_key in results_by_bank:
             r = results_by_bank[bank_key]
             bank_items = r["unmatched_bank_items"].to_dict("records")
 
-        if not bank_items:
-            for blank_row in range(2):
-                ws3.cell(row=row_cursor, column=1, value=blank_row + 1)
-                ws3.cell(row=row_cursor, column=7, value=0)
-                row_cursor += 1
-        else:
-            cfg = BANKS[bank_key]
-            for s_no, item in enumerate(bank_items, start=1):
-                ws3.cell(row=row_cursor, column=1, value=s_no)
-                ws3.cell(row=row_cursor, column=2, value=str(item.get(cfg["date_col"], "")))
-                ws3.cell(row=row_cursor, column=4, value=str(item.get(cfg["slip_col"], "")))
-                ws3.cell(row=row_cursor, column=7, value=item.get(cfg["amount_col"]))
-                ws3.cell(row=row_cursor, column=9,
-                         value="In bank for this depot, not found in ledger this month - review manually")
-                for c in range(1, 10):
-                    ws3.cell(row=row_cursor, column=c).fill = red_fill
-                row_cursor += 1
+        first_item_row = row_cursor
+        n_rows = max(len(bank_items), 2)
+        for i in range(n_rows):
+            if i < len(bank_items):
+                item = bank_items[i]
+                style_data_cell(ws3.cell(row=row_cursor, column=1), i + 1)
+                style_data_cell(ws3.cell(row=row_cursor, column=2), str(item.get(cfg["date_col"], "")))
+                style_data_cell(ws3.cell(row=row_cursor, column=4), str(item.get(cfg["slip_col"], "")))
+                style_data_cell(ws3.cell(row=row_cursor, column=7), item.get(cfg["amount_col"]), red=True)
+                style_data_cell(ws3.cell(row=row_cursor, column=9), "In bank for this depot, not found in ledger this month - review manually", red=True)
+                for c in [3, 5, 6, 8]:
+                    style_data_cell(ws3.cell(row=row_cursor, column=c), red=True)
+            else:
+                style_data_cell(ws3.cell(row=row_cursor, column=1), i + 1)
+                style_data_cell(ws3.cell(row=row_cursor, column=7), 0)
+                for c in [2, 3, 4, 5, 6, 8, 9]:
+                    style_data_cell(ws3.cell(row=row_cursor, column=c))
+            row_cursor += 1
+        last_item_row = row_cursor - 1
 
+        total_row = row_cursor
+        style_data_cell(ws3.cell(row=total_row, column=1), "Total", bold=True)
+        for c in [2, 3, 4, 5, 6, 8, 9]:
+            style_data_cell(ws3.cell(row=total_row, column=c), bold=True)
+        total_cell = ws3.cell(row=total_row, column=7)
+        total_cell.value = f"=SUM(G{first_item_row}:G{last_item_row})"
+        total_cell.font = BOLD
+        total_cell.border = BORDER
+        annex3_totals[code] = total_row
         row_cursor += 2
 
-    for col_letter, width in zip("ABCDEFGHI", [8, 12, 18, 18, 9, 14, 14, 14, 44]):
+    for col_letter, width in zip("ABCDEFGHI", [8, 12, 20, 18, 9, 12, 14, 14, 44]):
         ws3.column_dimensions[col_letter].width = width
+
+    # ---------------- MAIN RECONCILIATION ----------------
+    ws = wb.create_sheet("Main Reconciliation", 0)
+
+    ws.merge_cells("B1:L1")
+    ws.merge_cells("B2:L2")
+    ws.merge_cells("B3:L3")
+    ws["B2"] = "Muller & Phipps Pakistan (Pvt) Ltd"
+    ws["B2"].font = BOLD
+    ws["B3"] = "Reconciliation of CMD / Collection Accounts"
+    ws["B3"].font = BOLD
+    ws["B5"] = "Depot Name:"
+    ws["B5"].font = BOLD
+    ws["C5"] = depot_code
+    ws["C5"].font = BOLD
+    ws["E5"] = depot_name
+    ws["E5"].font = BOLD
+
+    headers = [
+        "Branch Name \nAs Per GLR", "Location \nCode", "GLR \nCode No.",
+        "Collection Bank Balance", "Add \nDebit in \nM&P Ledger \n(Annexure 1)",
+        "Less\nCredit in \nM&P Ledger \n(Annexure 2)", "Add\nDebit in Bank \n(Annexure 3)",
+        "Less\nCredit in Bank\n(Annexure 4)", "GL Balance \nas per\n Bank Recon \n(A)",
+        "Balance \nas per\nMNP Ledger\nin Actual (B)*", "Difference \n(B-A)"
+    ]
+    header_row = 6
+    for i, h in enumerate(headers):
+        style_header_cell(ws.cell(row=header_row, column=2 + i), h)
+    ws.row_dimensions[header_row].height = 66.75
+
+    for i, (bank_name, code, bank_key) in enumerate(FULL_ACCOUNTS):
+        row = header_row + 1 + i
+        style_data_cell(ws.cell(row=row, column=2), bank_name)
+        style_data_cell(ws.cell(row=row, column=3), depot_code)
+        style_data_cell(ws.cell(row=row, column=4), code)
+        style_data_cell(ws.cell(row=row, column=5), 0, bold=True)  # Collection Bank Balance - fill manually
+
+        if code in annex1_totals:
+            ws.cell(row=row, column=6).value = f"='Annex 1 (Debit M&P)'!G{annex1_totals[code]}"
+        else:
+            ws.cell(row=row, column=6).value = 0
+        style_data_cell(ws.cell(row=row, column=6))
+
+        style_data_cell(ws.cell(row=row, column=7), 0)  # Less Credit M&P - Annex 2 not built yet
+
+        if code in annex3_totals:
+            ws.cell(row=row, column=8).value = f"='Annex 3 (Debit Bank)'!G{annex3_totals[code]}"
+        else:
+            ws.cell(row=row, column=8).value = 0
+        style_data_cell(ws.cell(row=row, column=8))
+
+        style_data_cell(ws.cell(row=row, column=9), 0)  # Less Credit Bank - Annex 4 not built yet
+
+        gl_bal_cell = ws.cell(row=row, column=10)
+        gl_bal_cell.value = f"=SUM(E{row}:I{row})"
+        gl_bal_cell.font = BOLD
+        gl_bal_cell.border = BORDER
+
+        style_data_cell(ws.cell(row=row, column=11), 0, bold=True)  # Balance per ledger - fill manually
+
+        diff_cell = ws.cell(row=row, column=12)
+        diff_cell.value = f"=K{row}-J{row}"
+        diff_cell.font = BOLD
+        diff_cell.border = BORDER
+
+    total_row = header_row + 1 + len(FULL_ACCOUNTS)
+    style_data_cell(ws.cell(row=total_row, column=2), "Total", bold=True)
+    first_data_row = header_row + 1
+    last_data_row = total_row - 1
+    for col in range(5, 13):
+        col_letter = get_column_letter(col)
+        cell = ws.cell(row=total_row, column=col)
+        cell.value = f"=SUM({col_letter}{first_data_row}:{col_letter}{last_data_row})"
+        cell.font = BOLD
+        cell.border = BORDER
+
+    ws.cell(row=total_row + 2, column=2,
+            value="* Fill 'Collection Bank Balance' and 'Balance as per MNP Ledger in Actual' manually from bank statement / trial balance.").font = Font(italic=True, size=9)
+
+    col_widths = {"B": 25.5, "C": 8.9, "D": 9.3, "E": 13.1, "F": 15.1,
+                  "G": 15.1, "H": 14.1, "I": 14.1, "J": 15.1, "K": 16, "L": 12}
+    for col_letter, width in col_widths.items():
+        ws.column_dimensions[col_letter].width = width
 
     output = io.BytesIO()
     wb.save(output)
