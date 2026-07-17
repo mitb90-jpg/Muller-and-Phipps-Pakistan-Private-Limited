@@ -152,6 +152,18 @@ ANNEX_LEFT_HEADERS = [
 ]
 
 
+IMPREST_ACCOUNTS = [
+    ("MCB Bank Ltd", 212401),
+    ("Habib Bank Limited", 212402),
+    ("National Bank of Pakistan", 212404),
+    ("Standard Chartered Bank", 212405),
+    ("Bank Al Falah Limited", 212407),
+    ("Bank Al Habib Limited", 212408),
+    ("Dubai Islamic Bank Limited", 212409),
+    ("Faysal Bank Limited", 212410),
+]
+
+
 def build_template_excel(results_by_bank, depot_code, depot_name=""):
     """Builds output matching the real Main Reconciliation / Annex 1 (Debit M&P) /
     Annex 3 (Debit Bank) template: same formatting (wrapped yellow headers, thin
@@ -306,6 +318,184 @@ def build_template_excel(results_by_bank, depot_code, depot_name=""):
     for col_letter, width in zip("ABCDEFGHI", [8, 12, 20, 18, 9, 12, 14, 14, 44]):
         ws3.column_dimensions[col_letter].width = width
 
+    # ---------------- ANNEX 2 (Credit M&P) ----------------
+    # No credit-side matching logic yet (these are bulk monthly transfer-out
+    # entries, not per-transaction) - list ledger credit entries for reference
+    # and total them, so Main Reconciliation can still link to a real total.
+    ws2 = wb.create_sheet("Annex 2 (Credit M&P)")
+    ws2["A1"] = "Annexure 2"
+    ws2["A1"].font = BOLD
+    ws2["A2"] = "Credit in M&P Ledger - Collection Accounts"
+    ws2["A2"].font = BOLD
+
+    annex2_totals = {}
+    row_cursor = 4
+    for bank_name, code, bank_key in FULL_ACCOUNTS:
+        ws2.cell(row=row_cursor, column=1,
+                 value=f"{bank_name} - 01.000.000.{depot_code}.000.{code}").font = BOLD
+        row_cursor += 1
+        for i, h in enumerate(ANNEX_LEFT_HEADERS):
+            style_header_cell(ws2.cell(row=row_cursor, column=1 + i), h)
+        ws2.row_dimensions[row_cursor].height = 40
+        row_cursor += 1
+
+        items = []
+        if bank_key and bank_key in results_by_bank:
+            r = results_by_bank[bank_key]
+            items = r["ledger_credits"].to_dict("records")
+
+        first_item_row = row_cursor
+        n_rows = max(len(items), 2)
+        for i in range(n_rows):
+            if i < len(items):
+                item = items[i]
+                style_data_cell(ws2.cell(row=row_cursor, column=1), i + 1)
+                style_data_cell(ws2.cell(row=row_cursor, column=3), str(item.get("Journal Line Description", "")))
+                style_data_cell(ws2.cell(row=row_cursor, column=7), item.get("Entered Amount CR"))
+                style_data_cell(ws2.cell(row=row_cursor, column=9), "Bulk monthly transfer-out per ledger (reference only)")
+                for c in [2, 4, 5, 6, 8]:
+                    style_data_cell(ws2.cell(row=row_cursor, column=c))
+            else:
+                style_data_cell(ws2.cell(row=row_cursor, column=1), i + 1)
+                style_data_cell(ws2.cell(row=row_cursor, column=7), 0)
+                for c in [2, 3, 4, 5, 6, 8, 9]:
+                    style_data_cell(ws2.cell(row=row_cursor, column=c))
+            row_cursor += 1
+        last_item_row = row_cursor - 1
+
+        total_row = row_cursor
+        style_data_cell(ws2.cell(row=total_row, column=1), "Total", bold=True)
+        for c in [2, 3, 4, 5, 6, 8, 9]:
+            style_data_cell(ws2.cell(row=total_row, column=c), bold=True)
+        tc = ws2.cell(row=total_row, column=7)
+        tc.value = f"=SUM(G{first_item_row}:G{last_item_row})"
+        tc.font = BOLD
+        tc.border = BORDER
+        annex2_totals[code] = total_row
+        row_cursor += 2
+
+    for col_letter, width in zip("ABCDEFGHI", [8, 12, 20, 18, 9, 12, 14, 14, 44]):
+        ws2.column_dimensions[col_letter].width = width
+
+    # ---------------- ANNEX 4 (Credit Bank) ----------------
+    # No data source (would require full bank statements, not collection MIS
+    # listings) - skeleton only, matching template's own empty state.
+    ws4 = wb.create_sheet("Annex 4 (Credit Bank)")
+    ws4["A1"] = "Annexure 4"
+    ws4["A1"].font = BOLD
+    ws4["A2"] = "Credit in Bank - Collection Accounts"
+    ws4["A2"].font = BOLD
+
+    annex4_totals = {}
+    row_cursor = 4
+    for bank_name, code, bank_key in FULL_ACCOUNTS:
+        ws4.cell(row=row_cursor, column=1,
+                 value=f"{bank_name} - 01.000.000.{depot_code}.000.{code}").font = BOLD
+        row_cursor += 1
+        for i, h in enumerate(ANNEX_LEFT_HEADERS):
+            style_header_cell(ws4.cell(row=row_cursor, column=1 + i), h)
+        ws4.row_dimensions[row_cursor].height = 40
+        row_cursor += 1
+
+        first_item_row = row_cursor
+        for i in range(2):
+            style_data_cell(ws4.cell(row=row_cursor, column=1), i + 1)
+            style_data_cell(ws4.cell(row=row_cursor, column=7), 0)
+            for c in [2, 3, 4, 5, 6, 8, 9]:
+                style_data_cell(ws4.cell(row=row_cursor, column=c))
+            row_cursor += 1
+        last_item_row = row_cursor - 1
+
+        total_row = row_cursor
+        style_data_cell(ws4.cell(row=total_row, column=1), "Total", bold=True)
+        for c in [2, 3, 4, 5, 6, 8, 9]:
+            style_data_cell(ws4.cell(row=total_row, column=c), bold=True)
+        tc = ws4.cell(row=total_row, column=7)
+        tc.value = f"=SUM(G{first_item_row}:G{last_item_row})"
+        tc.font = BOLD
+        tc.border = BORDER
+        annex4_totals[code] = total_row
+        row_cursor += 2
+
+    for col_letter, width in zip("ABCDEFGHI", [8, 12, 20, 18, 9, 12, 14, 14, 44]):
+        ws4.column_dimensions[col_letter].width = width
+
+    # ---------------- IMPREST ANNEX 1-4 (no data source - skeleton only) ----------------
+    imprest_totals = {1: {}, 2: {}, 3: {}, 4: {}}
+    imprest_titles = {
+        1: ("Annex 1 (Debit M&P) - Imprest", "Debit in M&P Ledger (Imprest Accounts)"),
+        2: ("Annex 2 (Credit M&P) - Imprest", "Credit in M&P Ledger (Imprest Accounts)"),
+        3: ("Annex 3 (Debit Bank) - Imprest", "Debit in Bank (Imprest Accounts)"),
+        4: ("Annex 4 (Credit Bank) - Imprest", "Credit in Bank (Imprest Accounts)"),
+    }
+    for annex_num in [1, 2, 3, 4]:
+        sheet_title, subtitle = imprest_titles[annex_num]
+        wsx = wb.create_sheet(sheet_title)
+        wsx["A1"] = "Annexure " + str(annex_num)
+        wsx["A1"].font = BOLD
+        wsx["A2"] = subtitle
+        wsx["A2"].font = BOLD
+
+        row_cursor = 4
+        for bank_name, code in IMPREST_ACCOUNTS:
+            wsx.cell(row=row_cursor, column=1,
+                     value=f"{bank_name} - 01.000.000.{depot_code}.000.{code}").font = BOLD
+            row_cursor += 1
+            for i, h in enumerate(ANNEX_LEFT_HEADERS[:8]):  # Imprest has no "Ch/Cash" split in sample
+                style_header_cell(wsx.cell(row=row_cursor, column=1 + i), h)
+            row_cursor += 1
+
+            first_item_row = row_cursor
+            for i in range(2):
+                style_data_cell(wsx.cell(row=row_cursor, column=1), i + 1)
+                style_data_cell(wsx.cell(row=row_cursor, column=6), 0)
+                for c in [2, 3, 4, 5, 7, 8]:
+                    style_data_cell(wsx.cell(row=row_cursor, column=c))
+                row_cursor += 1
+            last_item_row = row_cursor - 1
+
+            total_row = row_cursor
+            style_data_cell(wsx.cell(row=total_row, column=1), "Total", bold=True)
+            tc = wsx.cell(row=total_row, column=6)
+            tc.value = f"=SUM(F{first_item_row}:F{last_item_row})"
+            tc.font = BOLD
+            tc.border = BORDER
+            imprest_totals[annex_num][code] = total_row
+            row_cursor += 2
+
+        for col_letter, width in zip("ABCDEFGH", [8, 12, 18, 9, 12, 14, 14, 44]):
+            wsx.column_dimensions[col_letter].width = width
+
+    # ---------------- CASH IN HAND SHEETS (no digital data source) ----------------
+    for sheet_name, label in [
+        ("212101 (CIH - Sale Proceed)", "Cash in Hand - Sale Proceed"),
+        ("212102 (CIH - Petty Cash)", "Cash in Hand - Petty Cash"),
+    ]:
+        wsc = wb.create_sheet(sheet_name)
+        wsc["A1"] = "Muller & Phipps Pakistan (Pvt.) Ltd."
+        wsc["A1"].font = BOLD
+        wsc["A2"] = f"Physical Cash Count :: {label}"
+        wsc["A3"] = (
+            "This is a physical cash count performed manually in the branch - "
+            "there is no digital file this tool can generate it from. "
+            "Please fill this sheet in manually as before."
+        )
+        wsc["A3"].font = Font(italic=True, size=9)
+        wsc.column_dimensions["A"].width = 70
+
+    # ---------------- CODE SHEET (static reference, matches original) ----------------
+    wscode = wb.create_sheet("Code")
+    code_rows = [("Cash", n, 209, c) for n, c in [
+        ("Cash in Hand - Sale Proceed", 212101), ("Cash in Hand - Petty Cash", 212102)
+    ]]
+    for bank_name, code, _ in FULL_ACCOUNTS:
+        code_rows.append(("Cash at Bank", bank_name, 209, code))
+    for i, row_vals in enumerate(code_rows, start=1):
+        for j, v in enumerate(row_vals, start=1):
+            wscode.cell(row=i, column=j, value=v)
+    for col_letter, width in zip("ABCD", [16, 30, 8, 10]):
+        wscode.column_dimensions[col_letter].width = width
+
     # ---------------- MAIN RECONCILIATION ----------------
     ws = wb.create_sheet("Main Reconciliation", 0)
 
@@ -348,7 +538,11 @@ def build_template_excel(results_by_bank, depot_code, depot_name=""):
             ws.cell(row=row, column=6).value = 0
         style_data_cell(ws.cell(row=row, column=6))
 
-        style_data_cell(ws.cell(row=row, column=7), 0)  # Less Credit M&P - Annex 2 not built yet
+        if code in annex2_totals:
+            ws.cell(row=row, column=7).value = f"='Annex 2 (Credit M&P)'!G{annex2_totals[code]}"
+        else:
+            ws.cell(row=row, column=7).value = 0
+        style_data_cell(ws.cell(row=row, column=7))
 
         if code in annex3_totals:
             ws.cell(row=row, column=8).value = f"='Annex 3 (Debit Bank)'!G{annex3_totals[code]}"
@@ -356,7 +550,11 @@ def build_template_excel(results_by_bank, depot_code, depot_name=""):
             ws.cell(row=row, column=8).value = 0
         style_data_cell(ws.cell(row=row, column=8))
 
-        style_data_cell(ws.cell(row=row, column=9), 0)  # Less Credit Bank - Annex 4 not built yet
+        if code in annex4_totals:
+            ws.cell(row=row, column=9).value = f"='Annex 4 (Credit Bank)'!G{annex4_totals[code]}"
+        else:
+            ws.cell(row=row, column=9).value = 0
+        style_data_cell(ws.cell(row=row, column=9))
 
         gl_bal_cell = ws.cell(row=row, column=10)
         gl_bal_cell.value = f"=SUM(E{row}:I{row})"
@@ -383,6 +581,61 @@ def build_template_excel(results_by_bank, depot_code, depot_name=""):
 
     ws.cell(row=total_row + 2, column=2,
             value="* Fill 'Collection Bank Balance' and 'Balance as per MNP Ledger in Actual' manually from bank statement / trial balance.").font = Font(italic=True, size=9)
+
+    # ---------------- IMPREST BANK ACCOUNTS TABLE ----------------
+    imprest_header_row = total_row + 4
+    ws.cell(row=imprest_header_row - 1, column=2, value="Reconciliation of Imprest Bank Accounts").font = BOLD
+    for i, h in enumerate(headers):
+        h2 = h.replace("Collection Bank Balance", "Balance as per\nBank Statement") \
+             .replace("As Per GLR", "As Per GLR")
+        style_header_cell(ws.cell(row=imprest_header_row, column=2 + i), h2)
+
+    for i, (bank_name, code) in enumerate(IMPREST_ACCOUNTS):
+        row = imprest_header_row + 1 + i
+        style_data_cell(ws.cell(row=row, column=2), bank_name)
+        style_data_cell(ws.cell(row=row, column=3), depot_code)
+        style_data_cell(ws.cell(row=row, column=4), code)
+        style_data_cell(ws.cell(row=row, column=5), 0, bold=True)
+
+        ws.cell(row=row, column=6).value = f"='Annex 1 (Debit M&P) - Imprest'!F{imprest_totals[1].get(code, 4)}" if code in imprest_totals[1] else 0
+        style_data_cell(ws.cell(row=row, column=6))
+        ws.cell(row=row, column=7).value = f"='Annex 2 (Credit M&P) - Imprest'!F{imprest_totals[2].get(code, 4)}" if code in imprest_totals[2] else 0
+        style_data_cell(ws.cell(row=row, column=7))
+        ws.cell(row=row, column=8).value = f"='Annex 3 (Debit Bank) - Imprest'!F{imprest_totals[3].get(code, 4)}" if code in imprest_totals[3] else 0
+        style_data_cell(ws.cell(row=row, column=8))
+        ws.cell(row=row, column=9).value = f"='Annex 4 (Credit Bank) - Imprest'!F{imprest_totals[4].get(code, 4)}" if code in imprest_totals[4] else 0
+        style_data_cell(ws.cell(row=row, column=9))
+
+        gl_bal_cell = ws.cell(row=row, column=10)
+        gl_bal_cell.value = f"=SUM(E{row}:I{row})"
+        gl_bal_cell.font = BOLD
+        gl_bal_cell.border = BORDER
+        style_data_cell(ws.cell(row=row, column=11), 0, bold=True)
+        diff_cell = ws.cell(row=row, column=12)
+        diff_cell.value = f"=K{row}-J{row}"
+        diff_cell.font = BOLD
+        diff_cell.border = BORDER
+
+    imprest_total_row = imprest_header_row + 1 + len(IMPREST_ACCOUNTS)
+    style_data_cell(ws.cell(row=imprest_total_row, column=2), "Total", bold=True)
+    for col in range(5, 13):
+        col_letter = get_column_letter(col)
+        cell = ws.cell(row=imprest_total_row, column=col)
+        cell.value = f"=SUM({col_letter}{imprest_header_row + 1}:{col_letter}{imprest_total_row - 1})"
+        cell.font = BOLD
+        cell.border = BORDER
+
+    # ---------------- CASH IN HAND (reference note only) ----------------
+    cih_row = imprest_total_row + 3
+    ws.cell(row=cih_row, column=2,
+            value="Cash in Hand (Sale Proceed / Petty Cash) - see 'CIH' sheets. Physical count required, fill manually.").font = Font(italic=True, size=9)
+
+    # ---------------- SIGNATURE BLOCK ----------------
+    sig_row = cih_row + 3
+    ws.cell(row=sig_row, column=2, value="_______________________").font = NORMAL
+    ws.cell(row=sig_row, column=9, value="_______________________").font = NORMAL
+    ws.cell(row=sig_row + 1, column=2, value="Prepared By").font = BOLD
+    ws.cell(row=sig_row + 1, column=9, value="Reviewed By").font = BOLD
 
     col_widths = {"B": 25.5, "C": 8.9, "D": 9.3, "E": 13.1, "F": 15.1,
                   "G": 15.1, "H": 14.1, "I": 14.1, "J": 15.1, "K": 16, "L": 12}
